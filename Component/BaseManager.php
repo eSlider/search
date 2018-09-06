@@ -2,6 +2,9 @@
 
 namespace Mapbender\SearchBundle\Component;
 
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Driver\PDOSqlite\Driver;
+use Doctrine\DBAL\Query\Expression\ExpressionBuilder;
 use Eslider\Driver\HKVStorage;
 use Mapbender\CoreBundle\Component\SecurityContext;
 use Mapbender\SearchBundle\Entity\UniqueBase;
@@ -15,6 +18,8 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  */
 abstract class BaseManager implements ManagerInterface
 {
+    /** @var Connection */
+    protected $notHkvDb;
     /** @var HKVStorage */
     protected $db;
 
@@ -58,9 +63,27 @@ abstract class BaseManager implements ManagerInterface
      */
     public function getAll()
     {
-        /** @var UniqueBase[] $list */
-        $list = $this->db->getData($this->tableName, null, null, $this->getUserId());
-        return $list ? $list : array();
+        if (true) {
+            $params = array(
+                ':userId' => $this->getUserId(),
+            );
+            $sql = "SELECT id, key, value, userId FROM {$this->tableName} WHERE userId LIKE :userId GROUP BY key";
+            $rows = $this->notHkvDb->executeQuery($sql, $params)->fetchAll();
+            $entities = array();
+            foreach ($rows as $row) {
+                $v = \json_decode($row['value'], true);
+                //unset($v['@type']);
+                $entity = $this->create($v);
+                if ($entity->getId()) {
+                    $entities[$entity->getId()] = $entity;
+                }
+            }
+            return $entities;
+        } else {
+            /** @var UniqueBase[] $list */
+            $list = $this->db->getData($this->tableName, null, null, $this->getUserId());
+            return $list ? $list : array();
+        }
     }
 
     /**
@@ -182,5 +205,13 @@ abstract class BaseManager implements ManagerInterface
     public function createDB()
     {
         $this->db = new HKVStorage($this->path, $this->tableName);
+        $doctrinePdoDriver = new Driver();
+        $params = array(
+            'path' => $this->path,
+            'driverOptions' => array(
+                \PDO::ATTR_EMULATE_PREPARES => true,
+            ),
+        );
+        $this->notHkvDb = new Connection($params, $doctrinePdoDriver);
     }
 }
